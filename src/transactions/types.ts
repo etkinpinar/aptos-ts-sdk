@@ -115,7 +115,7 @@ export type InputEntryFunctionDataWithRemoteABI = InputEntryFunctionData & { apt
  * The data needed to generate a Multi Sig payload
  */
 export type InputMultiSigData = {
-  multisigAddress: AccountAddress;
+  multisigAddress: AccountAddressInput;
 } & InputEntryFunctionData;
 
 /**
