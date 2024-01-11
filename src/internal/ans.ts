@@ -9,7 +9,7 @@
  */
 
 import { AptosConfig } from "../api/aptosConfig";
-import { Account, AccountAddress, AccountAddressInput } from "../core";
+import { AccountAddress, AccountAddressInput } from "../core";
 import { InputGenerateTransactionOptions, SimpleTransaction } from "../transactions/types";
 import { GetANSNameResponse, MoveAddressType, MoveValue, OrderByArg, PaginationArgs, WhereArg } from "../types";
 import { GetNamesQuery } from "../types/generated/operations";
@@ -118,7 +118,7 @@ export async function getOwnerAddress(args: { aptosConfig: AptosConfig; name: st
 
 export interface RegisterNameParameters {
   aptosConfig: AptosConfig;
-  sender: Account;
+  sender: AccountAddressInput;
   name: string;
   expiration:
     | { policy: "domain"; years?: 1 }
@@ -159,7 +159,7 @@ export async function registerName(args: RegisterNameParameters): Promise<Simple
 
     const transaction = await generateTransaction({
       aptosConfig,
-      sender: sender.accountAddress.toString(),
+      sender,
       data: {
         function: `${routerAddress}::router::register_domain`,
         functionArguments: [domainName, registrationDuration, targetAddress, toAddress],
@@ -189,7 +189,7 @@ export async function registerName(args: RegisterNameParameters): Promise<Simple
 
   const transaction = await generateTransaction({
     aptosConfig,
-    sender: sender.accountAddress.toString(),
+    sender,
     data: {
       function: `${routerAddress}::router::register_subdomain`,
       functionArguments: [
@@ -254,7 +254,7 @@ export async function getPrimaryName(args: {
 
 export async function setPrimaryName(args: {
   aptosConfig: AptosConfig;
-  sender: Account;
+  sender: AccountAddressInput;
   name?: string;
   options?: InputGenerateTransactionOptions;
 }): Promise<SimpleTransaction> {
@@ -264,7 +264,7 @@ export async function setPrimaryName(args: {
   if (!name) {
     const transaction = await generateTransaction({
       aptosConfig,
-      sender: sender.accountAddress.toString(),
+      sender,
       data: {
         function: `${routerAddress}::router::clear_primary_name`,
         functionArguments: [],
@@ -279,7 +279,7 @@ export async function setPrimaryName(args: {
 
   const transaction = await generateTransaction({
     aptosConfig,
-    sender: sender.accountAddress.toString(),
+    sender,
     data: {
       function: `${routerAddress}::router::set_primary_name`,
       functionArguments: [domainName, subdomainName],
@@ -312,7 +312,7 @@ export async function getTargetAddress(args: {
 
 export async function setTargetAddress(args: {
   aptosConfig: AptosConfig;
-  sender: Account;
+  sender: AccountAddressInput;
   name: string;
   address: AccountAddressInput;
   options?: InputGenerateTransactionOptions;
@@ -323,7 +323,7 @@ export async function setTargetAddress(args: {
 
   const transaction = await generateTransaction({
     aptosConfig,
-    sender: sender.accountAddress.toString(),
+    sender,
     data: {
       function: `${routerAddress}::router::set_target_addr`,
       functionArguments: [domainName, subdomainName, address],
@@ -529,7 +529,7 @@ async function getANSExpirationDate(args: { aptosConfig: AptosConfig }): Promise
 
 export async function renewDomain(args: {
   aptosConfig: AptosConfig;
-  sender: Account;
+  sender: AccountAddressInput;
   name: string;
   years?: 1;
   options?: InputGenerateTransactionOptions;
@@ -549,7 +549,7 @@ export async function renewDomain(args: {
 
   const transaction = await generateTransaction({
     aptosConfig,
-    sender: sender.accountAddress.toString(),
+    sender,
     data: {
       function: `${routerAddress}::router::renew_domain`,
       functionArguments: [domainName, renewalDuration],

@@ -8,34 +8,33 @@
 import { AptosConfig } from "../api/aptosConfig";
 import { MoveVector, U8 } from "../bcs";
 import { postAptosFullNode } from "../client";
-import { Account } from "../core/account";
-import { AccountAddress, AccountAddressInput } from "../core/accountAddress";
-import { PrivateKey } from "../core/crypto";
+import { AccountAddressInput, Ed25519Signer, Signer, SingleKeySigner } from "../core";
+import { AccountAddress } from "../core/accountAddress";
 import { AccountAuthenticator } from "../transactions/authenticator/account";
 import { RotationProofChallenge } from "../transactions/instances/rotationProofChallenge";
 import {
   buildTransaction,
-  generateTransactionPayload,
-  generateSignedTransactionForSimulation,
   generateSignedTransaction,
+  generateSignedTransactionForSimulation,
+  generateTransactionPayload,
   sign,
   generateSigningMessage,
 } from "../transactions/transactionBuilder/transactionBuilder";
 import {
-  InputGenerateTransactionData,
   AnyRawTransaction,
-  InputSimulateTransactionData,
+  AnyTransactionPayloadInstance,
+  InputGenerateMultiAgentRawTransactionData,
+  InputGenerateSingleSignerRawTransactionData,
+  InputGenerateTransactionData,
   InputGenerateTransactionOptions,
   SimpleTransaction,
   InputGenerateTransactionPayloadDataWithRemoteABI,
-  InputSubmitTransactionData,
-  InputGenerateMultiAgentRawTransactionData,
-  InputGenerateSingleSignerRawTransactionData,
+  InputSimulateTransactionData,
   MultiAgentTransaction,
-  AnyTransactionPayloadInstance,
+  InputSubmitTransactionData,
 } from "../transactions/types";
+import { HexInput, MimeType, PendingTransactionResponse, TransactionResponse, UserTransactionResponse } from "../types";
 import { getInfo } from "./account";
-import { UserTransactionResponse, PendingTransactionResponse, MimeType, HexInput, TransactionResponse } from "../types";
 
 /**
  * We are defining function signatures, each with its specific input and output.
@@ -134,10 +133,7 @@ export async function buildRawTransaction(
 ): Promise<AnyRawTransaction> {
   const { aptosConfig, sender, options } = args;
 
-  let feePayerAddress;
-  if (isFeePayerTransactionInput(args)) {
-    feePayerAddress = AccountAddress.ZERO.toString();
-  }
+  const feePayerAddress = args.withFeePayer ? AccountAddress.ZERO : undefined;
 
   if (isMultiAgentTransactionInput(args)) {
     const { secondarySignerAddresses } = args;
@@ -158,10 +154,6 @@ export async function buildRawTransaction(
     options,
     feePayerAddress,
   });
-}
-
-function isFeePayerTransactionInput(data: InputGenerateTransactionData): boolean {
-  return data.withFeePayer === true;
 }
 
 function isMultiAgentTransactionInput(
@@ -199,7 +191,7 @@ export function getSigningMessage(args: { transaction: AnyRawTransaction }): Uin
  *
  * @return The signer AccountAuthenticator
  */
-export function signTransaction(args: { signer: Account; transaction: AnyRawTransaction }): AccountAuthenticator {
+export function signTransaction(args: { signer: Signer; transaction: AnyRawTransaction }): AccountAuthenticator {
   const accountAuthenticator = sign({ ...args });
   return accountAuthenticator;
 }
@@ -269,8 +261,8 @@ export async function submitTransaction(
 
 export async function signAndSubmitTransaction(args: {
   aptosConfig: AptosConfig;
-  signer: Account;
-  transaction: AnyRawTransaction;
+  signer: Signer;
+  transaction: SimpleTransaction;
 }): Promise<PendingTransactionResponse> {
   const { aptosConfig, signer, transaction } = args;
   const authenticator = signTransaction({ signer, transaction });
@@ -283,18 +275,18 @@ export async function signAndSubmitTransaction(args: {
 
 export async function publicPackageTransaction(args: {
   aptosConfig: AptosConfig;
-  account: AccountAddressInput;
+  sender: AccountAddressInput;
   metadataBytes: HexInput;
   moduleBytecode: Array<HexInput>;
   options?: InputGenerateTransactionOptions;
 }): Promise<SimpleTransaction> {
-  const { aptosConfig, account, metadataBytes, moduleBytecode, options } = args;
+  const { aptosConfig, sender, metadataBytes, moduleBytecode, options } = args;
 
   const totalByteCode = moduleBytecode.map((bytecode) => MoveVector.U8(bytecode));
 
   const transaction = await generateTransaction({
     aptosConfig,
-    sender: AccountAddress.from(account),
+    sender,
     data: {
       function: "0x1::code::publish_package_txn",
       functionArguments: [MoveVector.U8(metadataBytes), new MoveVector(totalByteCode)],
@@ -309,48 +301,46 @@ export async function publicPackageTransaction(args: {
  */
 export async function rotateAuthKey(args: {
   aptosConfig: AptosConfig;
-  fromAccount: Account;
-  toNewPrivateKey: PrivateKey;
+  fromSigner: Ed25519Signer | SingleKeySigner;
+  toSigner: Ed25519Signer | SingleKeySigner;
 }): Promise<TransactionResponse> {
-  const { aptosConfig, fromAccount, toNewPrivateKey } = args;
+  const { aptosConfig, fromSigner, toSigner } = args;
   const accountInfo = await getInfo({
     aptosConfig,
-    accountAddress: fromAccount.accountAddress,
+    accountAddress: fromSigner.accountAddress,
   });
-
-  const newAccount = Account.fromPrivateKey({ privateKey: toNewPrivateKey, legacy: true });
 
   const challenge = new RotationProofChallenge({
     sequenceNumber: BigInt(accountInfo.sequence_number),
-    originator: fromAccount.accountAddress,
-    currentAuthKey: AccountAddress.from(accountInfo.authentication_key),
-    newPublicKey: newAccount.publicKey,
+    originator: fromSigner.accountAddress,
+    currentAuthKey: fromSigner.publicKey.authKey(),
+    newPublicKey: toSigner.publicKey,
   });
 
   // Sign the challenge
   const challengeHex = challenge.bcsToBytes();
-  const proofSignedByCurrentPrivateKey = fromAccount.sign(challengeHex);
-  const proofSignedByNewPrivateKey = newAccount.sign(challengeHex);
+  const proofSignedByCurrentPrivateKey = fromSigner.sign(challengeHex);
+  const proofSignedByNewPrivateKey = toSigner.sign(challengeHex);
 
   // Generate transaction
   const rawTxn = await generateTransaction({
     aptosConfig,
-    sender: fromAccount.accountAddress,
+    sender: fromSigner.accountAddress,
     data: {
       function: "0x1::account::rotate_authentication_key",
       functionArguments: [
-        new U8(fromAccount.signingScheme.valueOf()), // from scheme
-        MoveVector.U8(fromAccount.publicKey.toUint8Array()),
-        new U8(newAccount.signingScheme.valueOf()), // to scheme
-        MoveVector.U8(newAccount.publicKey.toUint8Array()),
-        MoveVector.U8(proofSignedByCurrentPrivateKey.toUint8Array()),
-        MoveVector.U8(proofSignedByNewPrivateKey.toUint8Array()),
+        new U8(fromSigner.publicKey.scheme), // from scheme
+        fromSigner.publicKey.bcsToBytes(),
+        new U8(toSigner.publicKey.scheme), // to scheme
+        toSigner.publicKey.bcsToBytes(),
+        proofSignedByCurrentPrivateKey.bcsToBytes(),
+        proofSignedByNewPrivateKey.bcsToBytes(),
       ],
     },
   });
   const pendingTxn = await signAndSubmitTransaction({
     aptosConfig,
-    signer: fromAccount,
+    signer: fromSigner,
     transaction: rawTxn,
   });
   return pendingTxn;

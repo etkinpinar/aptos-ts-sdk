@@ -14,7 +14,7 @@
  */
 
 import { AptosConfig } from "../../api/aptosConfig";
-import { Account } from "../../core";
+import { Signer } from "../../core";
 import { waitForTransaction } from "../../internal/transaction";
 import { generateTransaction, signAndSubmitTransaction } from "../../internal/transactionSubmission";
 import { PendingTransactionResponse, TransactionResponse } from "../../types";
@@ -27,10 +27,10 @@ const promiseFulfilledStatus = "fulfilled";
 export class TransactionWorker {
   readonly aptosConfig: AptosConfig;
 
-  readonly account: Account;
+  readonly sender: Signer;
 
   // current account sequence number
-  readonly accountSequnceNumber: AccountSequenceNumber;
+  readonly accountSequenceNumber: AccountSequenceNumber;
 
   readonly taskQueue: AsyncQueue<() => Promise<void>> = new AsyncQueue<() => Promise<void>>();
 
@@ -65,7 +65,7 @@ export class TransactionWorker {
    * Provides a simple framework for receiving payloads to be processed.
    *
    * @param aptosConfig - a config object
-   * @param sender - a sender as Account
+   * @param sender - a sender as Signer
    * @param maxWaitTime - the max wait time to wait before resyncing the sequence number
    * to the current on-chain state, default to 30
    * @param maximumInFlight - submit up to `maximumInFlight` transactions per account.
@@ -74,17 +74,17 @@ export class TransactionWorker {
    */
   constructor(
     aptosConfig: AptosConfig,
-    account: Account,
+    sender: Signer,
     maxWaitTime: number = 30,
     maximumInFlight: number = 100,
     sleepTime: number = 10,
   ) {
     this.aptosConfig = aptosConfig;
-    this.account = account;
+    this.sender = sender;
     this.started = false;
-    this.accountSequnceNumber = new AccountSequenceNumber(
+    this.accountSequenceNumber = new AccountSequenceNumber(
       aptosConfig,
-      account,
+      sender,
       maxWaitTime,
       maximumInFlight,
       sleepTime,
@@ -102,14 +102,14 @@ export class TransactionWorker {
       /* eslint-disable no-constant-condition */
       while (true) {
         if (this.transactionsQueue.isEmpty()) return;
-        const sequenceNumber = await this.accountSequnceNumber.nextSequenceNumber();
+        const sequenceNumber = await this.accountSequenceNumber.nextSequenceNumber();
         if (sequenceNumber === null) return;
-        const transaction = await this.generateNextTransaction(this.account, sequenceNumber);
+        const transaction = await this.generateNextTransaction(sequenceNumber);
         if (!transaction) return;
         const pendingTransaction = signAndSubmitTransaction({
           aptosConfig: this.aptosConfig,
           transaction,
-          signer: this.account,
+          signer: this.sender,
         });
         await this.outstandingTransactions.enqueue([pendingTransaction, sequenceNumber]);
       }
@@ -117,7 +117,7 @@ export class TransactionWorker {
       if (error instanceof AsyncQueueCancelledError) {
         return;
       }
-      throw new Error(`Submit transaction failed for ${this.account.accountAddress.toString()} with error ${error}`);
+      throw new Error(`Submit transaction failed for ${this.sender.accountAddress.toString()} with error ${error}`);
     }
   }
 
@@ -168,7 +168,7 @@ export class TransactionWorker {
       if (error instanceof AsyncQueueCancelledError) {
         return;
       }
-      throw new Error(`Process execution failed for ${this.account.accountAddress.toString()} with error ${error}`);
+      throw new Error(`Process execution failed for ${this.sender.accountAddress.toString()} with error ${error}`);
     }
   }
 
@@ -194,7 +194,7 @@ export class TransactionWorker {
         }
       }
     } catch (error: any) {
-      throw new Error(`Check transaction failed for ${this.account.accountAddress.toString()} with error ${error}`);
+      throw new Error(`Check transaction failed for ${this.sender.accountAddress.toString()} with error ${error}`);
     }
   }
 
@@ -211,16 +211,15 @@ export class TransactionWorker {
 
   /**
    * Generates a signed transaction that can be submitted to chain
-   * @param account an Aptos account
    * @param sequenceNumber a sequence number the transaction will be generated with
    * @returns
    */
-  async generateNextTransaction(account: Account, sequenceNumber: bigint): Promise<SimpleTransaction | undefined> {
+  async generateNextTransaction(sequenceNumber: bigint): Promise<SimpleTransaction | undefined> {
     if (this.transactionsQueue.isEmpty()) return undefined;
     const [transactionData, options] = await this.transactionsQueue.dequeue();
     const transaction = await generateTransaction({
       aptosConfig: this.aptosConfig,
-      sender: account.accountAddress,
+      sender: this.sender.accountAddress,
       data: transactionData,
       options: { ...options, accountSequenceNumber: sequenceNumber },
     });
