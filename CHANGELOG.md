@@ -4,6 +4,8 @@ All notable changes to the Aptos TypeScript SDK will be captured in this file. T
 
 # Unreleased
 
+- [`Breaking`] Change `ViewFunctionPayload` to `ViewFunctionData`, allowing view functions to take advantage of automatic ABI type conversion
+
 # 1.4.0 (2024-01-08)
 
 - Omit `"build" | "simulate" | "submit"` from `aptos` namespace
