@@ -82,6 +82,7 @@ import { memoizeAsync } from "../../utils/memoize";
 import { HexInput, SigningScheme } from "../../types";
 import { getFunctionParts, isScriptDataInput } from "./helpers";
 import { WebAuthnSignature } from "../../core/crypto/webauthn";
+import { getSigningMessage } from "../../internal/transactionSubmission";
 
 /**
  * We are defining function signatures, each with its specific input and output.
@@ -458,8 +459,8 @@ export async function signWithPasskey(args: {
   ];
 
   // Get the signing message and hash it to create the challenge
-  const transactionToSign = deriveTransactionType(transaction);
-  const signingMessage = getSigningMessage(transactionToSign);
+  const transactionToSign: SimpleTransaction = { rawTransaction: deriveTransactionType(transaction) as RawTransaction };
+  const signingMessage = getSigningMessage({ transaction: transactionToSign as AnyRawTransaction });
   const challenge = sha3Hash(signingMessage);
 
   const options = await generateAuthenticationOptions({
@@ -504,9 +505,9 @@ export function getAuthenticatorForWebAuthn(args: {
   clientDataJSON: HexInput;
 }): AccountAuthenticator {
   const { publicKey, signature, authenticatorData, clientDataJSON } = args;
-  let signatureObj: Signature;
+  let signatureObj: AnySignature;
   if (publicKey instanceof Secp256r1PublicKey) {
-    signatureObj = new Secp256r1Signature(signature);
+    signatureObj = new AnySignature(new Secp256r1Signature(signature));
   } else {
     throw new Error("Unsupported public key");
   }
