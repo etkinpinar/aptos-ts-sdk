@@ -115,14 +115,14 @@ export class AuthenticationKey extends Serializable {
     let scheme: number;
     if (publicKey instanceof Ed25519PublicKey) {
       // for legacy support
-      scheme = SigningScheme.Ed25519.valueOf();
+      scheme = SigningScheme.Ed25519;
     } else if (publicKey instanceof MultiEd25519PublicKey) {
       // for legacy support
-      scheme = SigningScheme.MultiEd25519.valueOf();
+      scheme = SigningScheme.MultiEd25519;
     } else if (publicKey instanceof AnyPublicKey) {
-      scheme = SigningScheme.SingleKey.valueOf();
+      scheme = SigningScheme.SingleKey;
     } else if (publicKey instanceof MultiKey) {
-      scheme = SigningScheme.MultiKey.valueOf();
+      scheme = SigningScheme.MultiKey;
     } else {
       throw new Error("No supported authentication scheme for public key");
     }
